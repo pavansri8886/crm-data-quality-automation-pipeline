@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+.global-venv/
+
+# Environment variables
+.env
+
+# Output files (generated)
+output/
+
+# Data files (optional - if you don’t want to push raw data)
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Logs
+*.log

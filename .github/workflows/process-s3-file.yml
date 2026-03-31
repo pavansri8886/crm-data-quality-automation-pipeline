@@ -1,0 +1,73 @@
+name: Process CRM file from S3
+
+on:
+  repository_dispatch:
+    types: [s3-file-arrived]
+  workflow_dispatch:
+    inputs:
+      bucket:
+        description: "S3 bucket name"
+        required: true
+      key:
+        description: "S3 object key"
+        required: true
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      S3_BUCKET: ${{ github.event.client_payload.bucket || inputs.bucket }}
+      S3_KEY: ${{ github.event.client_payload.key || inputs.key }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      # recommended: OIDC + IAM role
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+
+      - name: Create folders
+        run: |
+          mkdir -p data output
+
+      - name: Download raw file from S3
+        run: |
+          aws s3 cp "s3://${S3_BUCKET}/${S3_KEY}" data/crm_records.csv
+
+      - name: Run pipeline
+        run: |
+          python src/clean_crm_data.py
+          python src/audit_crm_data.py
+          python src/generate_recommendations.py
+          python src/send_to_slack.py
+
+      - name: Set dated output folder
+        id: dated
+        run: echo "date_folder=$(date +%F)" >> $GITHUB_OUTPUT
+
+      - name: Upload processed files to S3
+        run: |
+          aws s3 cp output/cleaned_crm_records.csv "s3://${S3_BUCKET}/processed/${{ steps.dated.outputs.date_folder }}/cleaned_crm_records.csv"
+          aws s3 cp output/issue_report.csv "s3://${S3_BUCKET}/processed/${{ steps.dated.outputs.date_folder }}/issue_report.csv"
+          aws s3 cp output/recommendations.csv "s3://${S3_BUCKET}/processed/${{ steps.dated.outputs.date_folder }}/recommendations.csv"
